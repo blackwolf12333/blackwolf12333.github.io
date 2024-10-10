@@ -1,0 +1,17 @@
+<html>
+	<body style="max-width: 80ch">
+		<article>
+			<h1>Testing as a poor mans REPL</h1>
+			<p>I quite often find myself not really knowing the exact solution to a problem. When this is the case I often whip up a new test file with just a single test: test().</p>
+
+			<p>I use this unnamed test to quickly write up some test data and right there in the test I start working on the implementation of a particularly tricky bit of logic (assuming it’s very isolated and doesn’t have many dependencies).</p>
+
+			<p>This way you get a very quick feedback loop because your test data and implementation are literally right next to each other. So when I find my implementation is missing something I can quickly add it, but it also works the other way around. If I discover through writing the implementation that my test data is missing something its straightforward to add a bit of data to verify the implementation.</p>
+
+			<p>This is similar to a REPL (read, evaluate, print, loop) but missing some of the convenience. Though with some keyboard shortcuts you get really close.</p>
+
+			Using an unnamed test can also allow you to explore how the system works, or even just check behavior of a php function. For example what is the difference between array_replace_recursive and array_merge_recursive. You could write up a quick test with some test arrays and call both functions and use the debugger (or an assertion) to see what the results look like.</p>
+			</p>
+		</article>
+	</body>
+</html>

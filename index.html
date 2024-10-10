@@ -1,11 +1,36 @@
 <html>
-	<body style="max-width: 80ch;">
+	<head>
+		<!-- This gives the browser instructions on how to control the page's dimensions and scaling.
+		The width=device-width part sets the width of the page to follow the screen-width of the device (which will vary depending on the device).
+		The initial-scale=1.0 part sets the initial zoom level when the page is first loaded by the browser. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<style>
+			body {
+				display: flex;
+				justify-content: space-between;
+				/* This makes sure my own stuff section is always the first thing people see
+				 * on small devices. This is because I expect my list of interesting links
+				 * to grow quite a bit and if that's long you don't see my stuff anymore
+				 * unless you scroll past all of that.
+				 */
+				flex-wrap: wrap-reverse;
+			}
+			section {
+				flex-grow: 1;
+				min-width: 33%;
+			}
+		</style>
+	</head>
+	<body>
+		<section>
 		<h1>Links I like</h1>
 		<ul>
 			<li><a href="http://sled.rs/errors.html">Handling errors</a></li>
 			<li><a href="https://wickstrom.tech/2019-03-24-property-based-testing-in-a-screencast-editor-case-study-1.html">Property-Based Testing in a Screencast Editor, Case Study 1: Timeline Flattening</a></li>
 		</ul>
+		</section>
 		
+		<section>
 		<h1>Blogs I like</h1>
 		<ul>
 			<li><a href="http://brooker.co.za/blog/">Pursuit Of Laziness</a></li>
@@ -14,10 +39,13 @@
 			<li><a href="https://www.percona.com/blog/">Percona Database Performance Blog</a></li>
 			<li><a href="https://blogs.gnome.org/chergert/">Christian Hergert - Happenings in GNOME</a></li>
 		</ul>
+		</section>
 
+		<section>
 		<h1>My own stuff</h1>
 		<ul>
 			<li><a href="blogs/01.html">Testing as a poor mans REPL</a></li>
 		</ul>
+		</section>
 	</body>
 </html>

@@ -1,0 +1,51 @@
+<html>
+	<head>
+		<!-- This gives the browser instructions on how to control the page's dimensions and scaling.
+		The width=device-width part sets the width of the page to follow the screen-width of the device (which will vary depending on the device).
+		The initial-scale=1.0 part sets the initial zoom level when the page is first loaded by the browser. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	</head>
+	<body style="max-width: 80ch">
+		<a href="/">Home</a>
+		<article>
+			<h1>Foreign keys vanishing under mysterious circumstances!</h1>
+			<p>Over the years we’d been getting bug reports from users with completely nonsensical data. We quickly found out that certain foreign key constraints were completely missing from their database. Which allowed the data corruption to occur. But what we didn’t figure out is why those constraints had gone missing. Here and there we spend some time theorizing and checking possible root causes but nothing ever turned up.</p>
+
+			<p>Until recently I started in a new role which gave me more time to do a deep dive into this issue.</p>
+
+			<h2>Life, the Universe, and Everything</h2>
+
+			<blockquote>
+				<p>In the beginning the Universe was created. This has made a lot of people very angry and been widely regarded as a bad move.</p>
+			</blockquote>
+			
+			<p>To explain what happened first let me set the scene. We run a multi tenant setup where each customer gets their own database on one of several database servers (geographically located close to that customer). When a customer requests an account we make a copy of an existing “demo” account and make the data in the demo database time travel to the current date. This process is managed by a number of different services that all talk to each other in one way or another.</p>
+			<p>The process starts out at our landing page where users can request a demo, this requests some basic information such as the account name and license they would like to use. Once this is provided the landing page inserts a row into a table in our admin database.</p>
+			<p>A separate script that runs continuously checks this table for new records and kicks of a copy of the demo database to the account database. This is really part of our regular backup and restore process, we take a backup of the demo database every night (just like for customer databases). And then we use that backup to restore into a demo account.</br>
+The process of backing up and restoring accounts is fairly robust and well tested because we use it all the time internally and for our demo creation so we know immediately when something breaks. This process has been running without major modifications for years without interruptions.</p>
+			<p>Once the database is created the script marks the row as completed and it kicks off a couple of other processes. As mentioned earlier, we “time travel” the data in the demo database to the current date and time to make sure all demos have a consistent experience. We then also strip out data that the customer can’t see due to their chose license. And we update the main crew member in the database with the name of the customer. This will be their user in the account which has power user privileges in the account.</p>
+			<p>Once this is done the landing page is notified and presents a button to go to their workspace.</p>
+
+			<h2>Hitchhikers guide to the root cause</h2>
+			<p>We already had a number of theories where this could be going wrong, but we hadn’t had time to test them yet. This is where the journey starts for us, but we took a number of wrong turns here and there.</p>
+			<p>There are a lot of moving pieces, but something that doesn’t move as much are our databases. They sit happily on their database servers providing our users with data (even if it’s sometimes broken). I started here with the investigation, a script that fetched table metadata from the information_schema for each database on each server.</p>
+			<p>This generated a nice chunky 11GB directory with files containing all the data needed to figure out which databases were missing constraints. I then wrote a simple script that parsed those files and determined which account databases had constraints missing. This turned out to be a total number of 450 databases. Once we know what databases to look at we could look a little closer.</p>
+			<p>One of the initial theories was that something might have been broken in our backup process all along and these databases were created from a corrupt backup. That would have made the most sense if all foreign keys were missing from these databases. However they were not, it was only very specific foreign keys that kept coming back as missing.</br>
+			I verified this was not the case by manually inspecting the backup the account was initially created from and found the constraints all there. I did this only through spot checking, so I sampled a couple of databases and found none of the backups they were created from to be missing the constraints. This ruled out a broken backup.</p>
+			<p>Next up, the <code>DatabaseProblemFixer</code> class in our backend. This was written in June of 2020 to detect and fix problems like missing constraints. The fact that it was intend to fix such problems of course immediately made it suspicious. However after scouring all of our repositories and crontabs I could not find a single place that actually invoked it. Which ruled this class out as the cause of our missing constraints because we had accounts in the dataset that were created mere days before I started the investigation.</p>
+			<p>We now had one, very vague, theory left: something in the demo creation process that is not the actual backup restore itself went wrong. By some luck I figured out that one of the accounts in the dataset was created very recently and we still had detailed logs of it’s creation and initial setup. Here I quickly found a request that failed on our backend.</p>
+
+			<h2>The root cause</h2>
+			<p>The log I found involved the <code>forceDowngrade</code> request which is used to remove data from the demo that the user can’t see anyway because it’s not included in their license. Unfortunately the reason why the request failed was nowhere to be found and likely unrelated to the missing foreign keys (though we can’t be sure).</p>
+			<p>At the time I didn’t really know what this request did, so I dove into the code. It’s actually a fairly simple request on the surface. We have a list of “license checkers” that check for a particular license if some data exists. And if the user doesn’t have the license it provides an option to automatically correct the data so that it makes sense for their license. We have quite a lot of such license checkers but since I didn’t have any other hints I went through them one by one.</p>
+			<p>Eventually I stumbled upon <code>LicenseCheckerPlannedEquipment</code>, this checks if you have access to our equipment planning product, and if you don’t deletes all planned equipment. Since our equipment planning product is one of our core products the amount of data that tends to be in our planned_equipment table is huge and not suitable for a simple <code>DELETE FROM …</code> statement because that could run for a very long time.</p>
+			<p>So instead a decision was made in the past to take a different approach to mass deleting data. It first creates a copy of the planned_equipment table, but without the data, using a <code>CREATE TABLE … LIKE</code> statement. And then we drop the original table and rename the copy. This works pretty wel for really quickly deleting data and keeping some semblance of the original table in place.</p>
+			<p>But as you might guess from the phrasing, this doesn’t actually create a full copy of the table. Crucially, it doesn’t copy over foreign key constraints! After a quick verification by creating a demo without equipment planning we finally nailed down the root cause.</p>
+
+			<h2>Conclusion</h2>
+			<p>It turns out this is documented in the <a href="https://dev.mysql.com/doc/refman/8.0/en/create-table-like.html">MySQL documentation</a> but apparently this effect was unknown to the developer that wrote this in 2020 (who has incidentally also left the company years ago), and only figured out after looking it up. I won’t claim to know every dark corner of the MySQL documentation though I’ve spend maybe a little to much time there than is good for me.</p>
+			<p>As it turns out, very few users ever actually downgrade their license to not include equipment planning. So the only place this license checker is really ever used is in the demo creation scenario. This means that the amount of data it needs to delete is predefined and we know exactly how long it’ll take. So we decided to implement the simplest fix, just a regular <code>DELETE FROM</code> statement.</p>
+			<p>We’ve since also started an initiative to simplify and streamline the demo creation process a little since it is such a mess of different services all talking to each other. However untangling that web is quite a challenge and a story for another time.</p>
+		</article>
+	</body>
+</html>

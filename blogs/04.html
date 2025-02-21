@@ -1,0 +1,74 @@
+<html>
+	<head>
+		<!-- This gives the browser instructions on how to control the page's dimensions and scaling.
+		The width=device-width part sets the width of the page to follow the screen-width of the device (which will vary depending on the device).
+		The initial-scale=1.0 part sets the initial zoom level when the page is first loaded by the browser. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>A little garden of blogs</title>
+<style>
+blockquote {
+  background-color: #ededed;
+  margin: 10px auto;
+  padding: 15px;
+  border-radius: 0px 5px 5px 0px;
+  border-left: 4px solid #797979;
+}
+</style>
+	</head>
+	<body style="max-width: 80ch">
+		<a href="/">Home</a>
+		<article>
+			<h1>Understanding MySQL deadlock logs</h1>
+			<p>Recently I became interested in understanding deadlock errors
+			in the application at my {{dayjob}}. To get a better understanding
+			you first need some data of what transactions actually deadlock. In
+			order to do this I configured our database servers to log all deadlocks
+			to the mysql error log. See <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-parameters.html#sysvar_innodb_print_all_deadlocks">innodb_print_all_deadlocks</a>.</p>
+
+			<p>I can't show you the actual logs that I'm getting from our application
+			but what I can do is expand on the excellent <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlock-example.html">mysql deadlock example</a> from the
+			official documentation (<a href="https://web.archive.org/web/20241214192732/https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlock-example.html">archive.org</a>).</p>
+
+			<p>I'll pick out a couple of important lines from the error log example and expand
+			on the explanation why this caused a deadlock. The first line I want to talk about is: </br>
+			<ul>
+						<li>Transaction 1: <code>RECORD LOCKS space id 28 page no 4 n bits 72 index PRIMARY of table `test`.`Birds` trx id 43260 lock mode S locks rec but not gap</code></li>
+						<li>Transaction 1: <code>RECORD LOCKS space id 27 page no 4 n bits 72 index PRIMARY of table `test`.`Animals` trx id 43260 lock_mode X locks rec but not gap waiting</code></li>
+						<li>Transaction 2: <code>RECORD LOCKS space id 27 page no 4 n bits 72 index PRIMARY of table `test`.`Animals` trx id 43261 lock mode S locks rec but not gap</code></li>
+						<li>Transaction 2: <code>RECORD LOCKS space id 28 page no 4 n bits 72 index PRIMARY of table `test`.`Birds` trx id 43261 lock_mode X locks rec but not gap waiting</code></li>
+			</ul>
+			
+			</br>
+			We'll see 4 similar looking lines like this one in the error log, each with a slight variation. I want to highlight
+			a couple of important bits:
+
+			<ul>
+						<li><code>lock mode S locks rec but not gap</code>: This tells us that this transaction has acquired a shared lock</li>
+						<li><code>index PRIMARY of table `test`.`Birds`</code>: This tells us that this transaction is locking the PRIMARY index of the Birds table</li>
+			</ul>
+
+			The second line has some variations on this:
+
+			<ul>
+						<li><code>lock_mode X locks rec but not gap waiting</code>: This tells us that this transaction is waiting to acquire an exclusive lock</li>
+						<li><code>index PRIMARY of table `test`.`Animals`</code>: This tells us that this transaction is waiting to lock the PRIMARY index of the Animals table</li>
+			</ul>
+
+			As we can see in the lines of Transaction 2, the inverse is happening. Transaction 2 is waiting for an exclusive lock
+			on Birds, and currently holds a shared lock on Animals. And this is the cause of the deadlock, neither transaction can
+			finish without the other giving up it's exclusive lock.
+			</p>
+
+			<p>
+			One final detail is that we can actually tell which physical records are the cause of the deadlock. The error logs
+			also describe which exact records are being locked. You can find out which by looking at the lines that look like 
+			<code>Record lock, heap no 2 PHYSICAL RECORD: n_fields 4; compact format; info bits 0</code>.</br>
+			The important bit here is the <code>heap no 2</code>, this tells us that we are locking record 2. It's not entirely
+			clear to me what this 2 refers to, it's not the actual id of the row. In the example in the mysql docs this 
+			isn't really that interesting, all locks point to the same heap no 2. But I've found that in our production logs
+			there are often more records locked and then you can determine using this number after heap no which exact records
+			are causing your deadlock.
+			</p>
+		</article>
+	</body>
+</html>
